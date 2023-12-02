@@ -1,6 +1,8 @@
 package `in`.architectengineer.data.user
 
 import com.mongodb.client.model.Filters.eq
+import com.mongodb.client.model.UpdateOptions
+import com.mongodb.client.model.Updates.set
 import com.mongodb.kotlin.client.coroutine.MongoDatabase
 import `in`.architectengineer.data.user.requests.User
 import kotlinx.coroutines.flow.firstOrNull
@@ -14,6 +16,12 @@ class UserRepositoryImpl(
 
     override suspend fun insertUser(user: User): Boolean {
         return users.insertOne(user).wasAcknowledged()
+    }
+
+    override suspend fun updateUser(user: User): Boolean {
+        val filter = eq(User::id.name,user.id)
+        val update = set(User::emailVerificationCode.name,user.emailVerificationCode)
+        return users.updateOne(filter, update).wasAcknowledged()
     }
 
     override suspend fun findUserById(id: String): User? {

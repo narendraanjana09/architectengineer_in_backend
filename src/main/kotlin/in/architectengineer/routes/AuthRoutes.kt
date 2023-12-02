@@ -9,7 +9,8 @@ import `in`.architectengineer.data.user.UserRepository
 import `in`.architectengineer.data.user.requests.User
 import `in`.architectengineer.data.user.responses.UserResponse
 import `in`.architectengineer.firebase.FIREBASE_AUTH
-import `in`.architectengineer.firebase.FirebaseUser
+import `in`.architectengineer.models.requests.LoginRequest
+import `in`.architectengineer.models.requests.ResendVerifyEmailCodeRequest
 import `in`.architectengineer.models.requests.SignUpRequest
 import `in`.architectengineer.models.requests.VerifyEmailRequest
 import io.ktor.http.*
@@ -18,30 +19,31 @@ import io.ktor.server.auth.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 
 
 fun Route.signUp(
     userRepository: UserRepository
 ) {
-    post ("sendMail"){
-       try {
-           runBlocking {
-               Email.sendEmail(
-                   from = "architectengineer.in@gmail.com",
-                   fromName = "ArchitectEngineer.in",
-                   to = "aanjnapatel0902@gmail.com",
-                   toName = "Narendra",
-                   sub = "Email Verification Code",
-                   body = "",
-                   htmlBody = getEmailVerificationTemplate(username = "Narendra","123456")
-               )
-           }
-           call.respond(HttpStatusCode.OK,"Mail Sent")
-       }catch (e:Exception) {
-           call.respond(HttpStatusCode.ExpectationFailed,"Error ${e.message}")
-       }
+    authenticate(FIREBASE_AUTH) {
+        post ("sendMail"){
+            try {
+                runBlocking {
+                    Email.sendEmail(
+                        from = "architectengineer.in@gmail.com",
+                        fromName = "ArchitectEngineer.in",
+                        to = "aanjnapatel0902@gmail.com",
+                        toName = "Narendra",
+                        sub = "Email Verification Code",
+                        body = "",
+                        htmlBody = getEmailVerificationTemplate(username = "Narendra","123456")
+                    )
+                }
+                call.respond(HttpStatusCode.OK,"Mail Sent")
+            }catch (e:Exception) {
+                call.respond(HttpStatusCode.ExpectationFailed,"Error ${e.message}")
+            }
+        }
     }
     post("register") {
         val request = call.receiveNullable<SignUpRequest>() ?: run {
@@ -74,29 +76,30 @@ fun Route.signUp(
             call.respond(HttpStatusCode.Conflict, Message("City can't be empty."))
             return@post
         }
-        var existingUser = userRepository.findUserByEmail(request.email)
-        if (existingUser != null) {
-            call.respond(HttpStatusCode.Conflict, Message("A user with this email already exists"))
-            return@post
-        }
-        existingUser = userRepository.findUserByMobile(request.mobile)
-        if (existingUser != null) {
-            call.respond(HttpStatusCode.Conflict, Message("A user with this mobile already exists"))
-            return@post
-        }
-
-        val secret = System.getenv("SECRET")
-        val user = User(
-            email = request.email,
-            name = request.name,
-            mobile = request.mobile,
-            city = if(request.city == secret) "" else request.city,
-            active = false,
-            emailVerificationCode = generateVerificationCode(),
-            dateJoined = System.currentTimeMillis().toString(),
-            role = if(request.city == secret) Constants.Roles.Admin.name else Constants.Roles.User.name
-        )
         try {
+            var existingUser = userRepository.findUserByEmail(request.email)
+            if (existingUser != null) {
+                call.respond(HttpStatusCode.Conflict, Message("A user with this email already exists"))
+                return@post
+            }
+            existingUser = userRepository.findUserByMobile(request.mobile)
+            if (existingUser != null) {
+                call.respond(HttpStatusCode.Conflict, Message("A user with this mobile already exists"))
+                return@post
+            }
+
+            val secret = System.getenv("SECRET")
+            val user = User(
+                email = request.email,
+                name = request.name,
+                mobile = request.mobile,
+                city = if(request.city == secret) "" else request.city,
+                active = true,
+                emailVerificationCode = generateVerificationCode(),
+                dateJoined = System.currentTimeMillis().toString(),
+                role = if(request.city == secret) Constants.Roles.Admin.name else Constants.Roles.User.name
+            )
+
             val createRequest: UserRecord.CreateRequest = UserRecord.CreateRequest()
                 .setEmail(request.email)
                 .setEmailVerified(false)
@@ -137,24 +140,26 @@ fun Route.signUp(
             call.respond(HttpStatusCode.BadRequest, Message("Invalid request data"))
             return@post
         }
-        if (request.id.isBlank()) {
-            call.respond(HttpStatusCode.Conflict, Message("Id cannot be empty"))
+        if (request.email.isBlank()) {
+            call.respond(HttpStatusCode.Conflict, Message("Email cannot be empty"))
             return@post
         }
         if(request.code.isEmpty() || request.code.length!=6){
             call.respond(HttpStatusCode.Conflict, Message("Please provide a valid code"))
             return@post
         }
-        var user = userRepository.findUserById(request.id)
-        if (user == null) {
-            call.respond(HttpStatusCode.Conflict, Message("A user with this id not exists"))
-            return@post
-        }
-        if(user.emailVerificationCode != request.code){
-            call.respond(HttpStatusCode.Conflict, Message("Wrong Code!!"))
-            return@post
-        }
        try {
+
+           var user = userRepository.findUserByEmail(request.email)
+           if (user == null) {
+               call.respond(HttpStatusCode.Conflict, Message("A user with this id not exists"))
+               return@post
+           }
+           if(user.emailVerificationCode != request.code){
+               call.respond(HttpStatusCode.Conflict, Message("Wrong Code!!"))
+               return@post
+           }
+
            val updateRequest: UserRecord.UpdateRequest = UserRecord.UpdateRequest(user.id)
                .setEmailVerified(true)
            FirebaseAuth.getInstance().updateUser(updateRequest)
@@ -162,8 +167,99 @@ fun Route.signUp(
        } catch (e:Exception){
            call.respond(HttpStatusCode.Conflict, Message("Email verification failed ${e.message}"))
        }
+    }
+    post ("resendVerifyEmailCode") {
+        val request = call.receiveNullable<ResendVerifyEmailCodeRequest>() ?: run {
+            call.respond(HttpStatusCode.BadRequest, Message("Invalid request data"))
+            return@post
+        }
+        if (request.email.isBlank()) {
+            call.respond(HttpStatusCode.Conflict, Message("Email cannot be empty"))
+            return@post
+        }
+        try {
 
+            var user = userRepository.findUserByEmail(request.email)
+            if (user == null) {
+                call.respond(HttpStatusCode.Conflict, Message("A user with this id not exists"))
+                return@post
+            }
+            user = user.copy(
+                emailVerificationCode = generateVerificationCode()
+            )
+            if(!userRepository.updateUser(user)){
+                call.respond(HttpStatusCode.Conflict, Message("Resending code failed..."))
+                return@post
+            }
 
+            runBlocking {
+                Email.sendEmail(
+                    from = "architectengineer.in@gmail.com",
+                    fromName = "ArchitectEngineer.in",
+                    to = user!!.email,
+                    toName = user!!.name,
+                    sub = "Email Verification Code",
+                    body = "",
+                    htmlBody = getEmailVerificationTemplate(username = user!!.name,user!!.emailVerificationCode)
+                )
+            }
+            call.respond(HttpStatusCode.OK,Message("Verification Code Sent."))
+        } catch (e:Exception){
+            call.respond(HttpStatusCode.Conflict, Message("Resend verification code failed ${e.message}"))
+        }
+    }
+    post("login") {
+        val request = call.receiveNullable<LoginRequest>() ?: run {
+            call.respond(HttpStatusCode.BadRequest, Message("Invalid request data"))
+            return@post
+        }
+        if (request.email.isBlank()) {
+            call.respond(HttpStatusCode.Conflict, Message("Email cannot be empty"))
+            return@post
+        }
+        if (request.email.verifyEmail()) {
+            call.respond(HttpStatusCode.Conflict, Message("Email must be valid"))
+            return@post
+        }
+
+        try {
+            var user = userRepository.findUserByEmail(request.email)
+
+            val fUser = FirebaseAuth.getInstance().getUser(user?.id)
+            if (user == null || fUser == null) {
+                call.respond(HttpStatusCode.Conflict, Message("A user with this id not exists"))
+                return@post
+            }
+            if(user?.active == false){
+                call.respond(HttpStatusCode.Conflict, Message("User account is disabled."))
+                return@post
+            }
+            if(!fUser.isEmailVerified) {
+                user = user?.copy(
+                    emailVerificationCode = generateVerificationCode()
+                )
+                if(!userRepository.updateUser(user!!)){
+                    call.respond(HttpStatusCode.Conflict, Message("Resending code failed..."))
+                    return@post
+                }
+                runBlocking {
+                    Email.sendEmail(
+                        from = "architectengineer.in@gmail.com",
+                        fromName = "ArchitectEngineer.in",
+                        to = user!!.email,
+                        toName = user!!.name,
+                        sub = "Email Verification Code",
+                        body = "",
+                        htmlBody = getEmailVerificationTemplate(username = user!!.name,user!!.emailVerificationCode)
+                    )
+                }
+                call.respond(HttpStatusCode.Conflict, Message("Verify Email"))
+            } else {
+                call.respond(HttpStatusCode.OK, Message("User Logged In"))
+            }
+        } catch (e:Exception){
+            call.respond(HttpStatusCode.Conflict, Message("login failed ${e.message}"))
+        }
     }
 
     authenticate(FIREBASE_AUTH) {
