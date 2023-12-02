@@ -45,6 +45,8 @@ dependencies {
     implementation("commons-codec:commons-codec:$commons_codec_version")
     implementation("com.google.firebase:firebase-admin:$firebase_admin")
 
+    implementation("aws.sdk.kotlin:ses:1.0.8")
+
     sshAntTask("org.apache.ant:ant-jsch:1.10.14")
 }
 

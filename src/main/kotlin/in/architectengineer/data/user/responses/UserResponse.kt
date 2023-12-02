@@ -6,8 +6,6 @@ import org.bson.types.ObjectId
 
 @Serializable
 data class UserResponse(
-    val username: String,
-    val password: String,
-    val salt: String,
+    val email: String,
     val id:String,
 )
