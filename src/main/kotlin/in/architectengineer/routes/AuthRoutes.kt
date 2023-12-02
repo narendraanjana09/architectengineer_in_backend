@@ -3,12 +3,14 @@ package `in`.architectengineer.routes
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.UserRecord
 import `in`.architectengineer.common.*
-import `in`.architectengineer.common.htmlTemplates.getEmailVerificationTemplate
+import `in`.architectengineer.common.htmlTemplates.getEmailVerificationCodeTemplate
+import `in`.architectengineer.common.htmlTemplates.getEmailVerificationLinkTemplate
 import `in`.architectengineer.common.model.Message
 import `in`.architectengineer.data.user.UserRepository
 import `in`.architectengineer.data.user.requests.User
 import `in`.architectengineer.data.user.responses.UserResponse
 import `in`.architectengineer.firebase.FIREBASE_AUTH
+import `in`.architectengineer.firebase.FirebaseUser
 import `in`.architectengineer.models.requests.LoginRequest
 import `in`.architectengineer.models.requests.ResendVerifyEmailCodeRequest
 import `in`.architectengineer.models.requests.SignUpRequest
@@ -36,7 +38,7 @@ fun Route.signUp(
                         toName = "Narendra",
                         sub = "Email Verification Code",
                         body = "",
-                        htmlBody = getEmailVerificationTemplate(username = "Narendra","123456")
+                        htmlBody = getEmailVerificationCodeTemplate(username = "Narendra","123456")
                     )
                 }
                 call.respond(HttpStatusCode.OK,"Mail Sent")
@@ -124,7 +126,7 @@ fun Route.signUp(
                     toName = user.name,
                     sub = "Email Verification Code",
                     body = "",
-                    htmlBody = getEmailVerificationTemplate(username = user.name,user.emailVerificationCode)
+                    htmlBody = getEmailVerificationCodeTemplate(username = user.name,user.emailVerificationCode)
                 )
             }
             call.respond(HttpStatusCode.OK,UserResponse(
@@ -200,7 +202,7 @@ fun Route.signUp(
                     toName = user!!.name,
                     sub = "Email Verification Code",
                     body = "",
-                    htmlBody = getEmailVerificationTemplate(username = user!!.name,user!!.emailVerificationCode)
+                    htmlBody = getEmailVerificationCodeTemplate(username = user!!.name,user!!.emailVerificationCode)
                 )
             }
             call.respond(HttpStatusCode.OK,Message("Verification Code Sent."))
@@ -250,7 +252,7 @@ fun Route.signUp(
                         toName = user!!.name,
                         sub = "Email Verification Code",
                         body = "",
-                        htmlBody = getEmailVerificationTemplate(username = user!!.name,user!!.emailVerificationCode)
+                        htmlBody = getEmailVerificationCodeTemplate(username = user!!.name,user!!.emailVerificationCode)
                     )
                 }
                 call.respond(HttpStatusCode.Conflict, Message("Verify Email"))
@@ -261,8 +263,37 @@ fun Route.signUp(
             call.respond(HttpStatusCode.Conflict, Message("login failed ${e.message}"))
         }
     }
+    authenticate(FIREBASE_AUTH){
+        post("sendEmailVerificationLink") {
+            val user: FirebaseUser =
+                call.principal() ?: return@post call.respond(HttpStatusCode.Unauthorized,"User Not Authorized!!")
 
+            try {
+                runBlocking {
+                    val fUser = FirebaseAuth.getInstance().getUser(user.userId)
+                    val link = FirebaseAuth.getInstance().generateEmailVerificationLink(fUser.email)
+
+                    Email.sendEmail(
+                        from = "architectengineer.in@gmail.com",
+                        fromName = "ArchitectEngineer.in",
+                        to = fUser.email,
+                        toName = fUser.displayName,
+                        sub = "Email Verification Link",
+                        body = "",
+                        htmlBody = getEmailVerificationLinkTemplate(username = user.displayName,link)
+                    )
+                }
+                call.respond(HttpStatusCode.OK,Message("Verification Link Sent."))
+            } catch (e:Exception){
+                call.respond(HttpStatusCode.Conflict, Message("Verification Link Send Error ${e.message}"))
+            }
+        }
+    }
     authenticate(FIREBASE_AUTH) {
-
+        get("authenticate") {
+            val user: FirebaseUser =
+                call.principal() ?: return@get call.respond(HttpStatusCode.Unauthorized,"User Not Authorized!!")
+            call.respond("User is authenticated: $user")
+        }
     }
 }
